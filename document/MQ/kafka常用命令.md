@@ -22,3 +22,5 @@
     2181 --topic yq20171220
 
 11. 彻底删除topic: rmr /brokers/topics/【topic name】即可
+
+测试
