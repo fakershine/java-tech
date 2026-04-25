@@ -1,64 +1,504 @@
-### 事务的四大特性
+# MySQL 事务总结
 
-1.原子性（atomicity）：原子性指整个数据库事务是不可分割的工作单位。只有使事务中所有的数据库操作都执行成功，才算整个事务成功。
-事务中任何一个SQL语句执行失败，已经执行成功的SQL语句也必须撤销，数据库状态应该退回到执行事务前的状态
+事务是指：**一组 SQL 要么全部成功，要么全部失败**。
 
-2. 一致性（consistency）：一致性指事务将数据库从一种状态转变为下一种一致的状态。在事务开始之前和事务结束以后，数据库的完整性约束没有被破坏
+典型场景：
 
-3. 隔离性（isolation）：事务的隔离性要求每个读写事务的对象对其他事务的操作对象能相互分离，即该事务提交前对其他事务都不可见，通常这使用锁来实现
+```text
+下单
+  ↓
+扣库存
+  ↓
+扣余额
+  ↓
+生成订单
+```
 
-4. 持久性（durability）：事务一旦提交，其结果就是永久性的。即使发生宕机等故障，数据库也能将数据恢复
+这些操作必须作为一个整体执行，不能只成功一部分。
 
-### 事务的分类
+---
 
-1. 扁平事务（Flat Transactions）
-2. 带有保存点的扁平事务（Flat Transactions with Savepoints）
-3. 链事务（Chained Transactions）
-4. 嵌套事务（Nested Transactions）
-5. 分布式事务（Distributed Transactions）
+## 1. 事务的 ACID 特性
 
-### 事务的实现
+| 特性 | 说明 |
+|---|---|
+| 原子性 Atomicity | 一个事务中的操作要么全部成功，要么全部失败 |
+| 一致性 Consistency | 事务执行前后，数据必须保持正确状态 |
+| 隔离性 Isolation | 多个事务并发执行时互不干扰 |
+| 持久性 Durability | 事务提交后，数据修改必须永久保存 |
 
-1. redo log（物理日志）
-    - redo log称为重做日志，用来保证事务的原子性和持久性
-    - redo通常是物理日志，记录的是页的物理修改操作
-    - redo log由两部分组成：
-        1. 一是内存中的重做日志缓冲（redo log buffer），其是易失的
-        2. 二是重做日志文件（redo log file），其是持久的
-    - redo log基本上都是顺序写的，在数据库运行时不需要对redo log的文件进行读取操作
-    - 参数innodb_flush_log_at_trx_commit用来控制重做日志刷新到磁盘的策略
-        1. 1（默认值）：表示事务提交时必须调用一次fsync操作
-        2. 0（1秒刷一次）：0表示事务提交时不进行写入重做日志操作，这个操作仅在master thread中完成，而在master thread中每1秒会进行一次重做日志文件的fsync操作
-        3. 2：2表示事务提交时将重做日志写入重做日志文件，但仅写入文件系统的缓存中，不进行fsync操作。在这个设置下，当MySQL数据库发生宕机而操作系统不发生宕机时，并不会导致事务的丢失。
-           而当操作系统宕机时，重启数据库后会丢失未从文件系统缓存刷新到重做日志文件那部分事务。
-    - 重做日志缓存、重做日志文件都是以块（block）的方式进行保存的，称之为重做日志块（redo log block），每块的大小为512字节
+---
 
+## 2. 原子性
 
-2. undo log（逻辑日志）
-    - undo log用来帮助事务回滚及MVCC的功能，用来保证事务的一致性，undo log是需要进行随机读写的
-        - 回滚操作
-            1. 对于每个INSERT，InnoDB存储引擎会完成一个DELETE
-            2. 对于每个DELETE，InnoDB存储引擎会执行一个INSERT
-            3. 对于每个UPDATE，InnoDB存储引擎会执行一个相反的UPDATE，将修改前的行放回去
-        - MVCC
-    - undo存放在数据库内部的一个特殊段（segment）中，这个段称为undo段（undo segment）。undo段位于共享表空间内
-    - undo log的产生会伴随着redo log的产生
-    - 当事务提交时，InnoDB存储引擎会做以下两件事情：
-        1. 将undo log放入列表中，以供之后的purge操作
-        2. 判断undo log所在的页是否可以重用（undo页的使用空间是否小于3/4），若可以分配给下个事务使用
-        3. 事务提交后并不能马上删除undo log及undo log所在的页。这是因为可能还有其他事务需要通过undo log来得到行记录之前的版本。故事务提交时将undo log放入一个链表中， 是否可以最终删除undo
-           log及undo log所在页由purge线程来判断
-    - undo log分类
-        1. insert undo log：insert undo log是指在insert操作中产生的undo log。因为insert操作的记录，只对事务本身可见，对其他事务不可见（这是事务隔离性的要求），故该undo
-           log可以在事务提交后直接删除。不需要进行purge操作
-        2. update undo log：update undo log记录的是对delete和update操作产生的undo log。该undo
-           log可能需要提供MVCC机制，因此不能在事务提交时就进行删除。提交时放入undo log链表，等待purge线程进行最后的删除
-    - delete操作并不直接删除记录，而只是将记录标记为已删除，也就是将记录的delete flag设置为1。而记录最终的删除是在purge操作中完成的
-    - update主键的操作其实分两步完成。首先将原主键记录标记为已删除，因此需要产生一个类型为TRX_UNDO_DEL_MARK_REC的undo
-      log，之后插入一条新的记录，因此需要产生一个类型为TRX_UNDO_INSERT_REC的undo log
+原子性表示：
 
+```text
+事务中的 SQL 要么全部执行成功，要么全部回滚
+```
 
-3. binlog（二进制日志）
-    - 逻辑日志，MySQL产生的日志，和数据库引擎无关
-    - 用来进行POINT-IN-TIME（PIT）的恢复及主从复制（Replication）环境的建立
+例如转账：
 
+```text
+A 扣 100
+B 加 100
+```
+
+不能出现：
+
+```text
+A 扣了钱，B 没收到钱
+```
+
+InnoDB 主要通过：
+
+```text
+undo log
+```
+
+实现事务回滚。
+
+---
+
+## 3. 一致性
+
+一致性表示事务执行前后，数据必须符合业务规则。
+
+例如：
+
+```text
+转账前：A + B = 1000
+转账后：A + B = 1000
+```
+
+一致性依赖：
+
+```text
+原子性
+隔离性
+持久性
+业务约束
+数据库约束
+```
+
+---
+
+## 4. 隔离性
+
+隔离性表示多个事务并发执行时，一个事务不能随意影响另一个事务。
+
+如果没有隔离性，可能出现：
+
+```text
+脏读
+不可重复读
+幻读
+```
+
+InnoDB 主要通过：
+
+```text
+锁
+MVCC
+```
+
+实现事务隔离。
+
+---
+
+## 5. 持久性
+
+持久性表示：
+
+```text
+事务提交后，数据即使数据库宕机也不能丢失
+```
+
+InnoDB 主要通过：
+
+```text
+redo log
+```
+
+保证事务提交后的数据可以恢复。
+
+---
+
+## 6. 事务基本操作
+
+开启事务：
+
+```sql
+START TRANSACTION;
+```
+
+提交事务：
+
+```sql
+COMMIT;
+```
+
+回滚事务：
+
+```sql
+ROLLBACK;
+```
+
+示例：
+
+```sql
+START TRANSACTION;
+
+UPDATE account SET balance = balance - 100 WHERE id = 1;
+UPDATE account SET balance = balance + 100 WHERE id = 2;
+
+COMMIT;
+```
+
+如果中途异常：
+
+```sql
+ROLLBACK;
+```
+
+---
+
+## 7. 自动提交
+
+MySQL 默认开启自动提交：
+
+```sql
+SHOW VARIABLES LIKE 'autocommit';
+```
+
+默认：
+
+```text
+autocommit = 1
+```
+
+表示每条 SQL 都是一个独立事务。
+
+关闭自动提交：
+
+```sql
+SET autocommit = 0;
+```
+
+---
+
+## 8. 并发事务问题
+
+## 8.1 脏读
+
+### 含义
+
+一个事务读到了另一个事务 **未提交** 的数据。
+
+```text
+事务 A 修改数据但未提交
+事务 B 读取到了这个修改
+事务 A 回滚
+事务 B 读到的数据就是脏数据
+```
+
+---
+
+## 8.2 不可重复读
+
+### 含义
+
+同一个事务中，多次读取同一行数据，结果不一致。
+
+```text
+事务 A 第一次读 balance = 100
+事务 B 修改 balance = 200 并提交
+事务 A 第二次读 balance = 200
+```
+
+重点：
+
+```text
+同一行数据被修改
+```
+
+---
+
+## 8.3 幻读
+
+### 含义
+
+同一个事务中，多次按条件查询，结果集数量不一致。
+
+```text
+事务 A 查询 age > 18，有 10 条
+事务 B 插入一条 age = 20 并提交
+事务 A 再查 age > 18，有 11 条
+```
+
+重点：
+
+```text
+新增或删除了符合条件的记录
+```
+
+---
+
+## 9. 事务隔离级别
+
+| 隔离级别 | 脏读 | 不可重复读 | 幻读 |
+|---|---|---|---|
+| Read Uncommitted | 可能 | 可能 | 可能 |
+| Read Committed | 不会 | 可能 | 可能 |
+| Repeatable Read | 不会 | 不会 | InnoDB 基本可避免 |
+| Serializable | 不会 | 不会 | 不会 |
+
+MySQL InnoDB 默认隔离级别是：
+
+```text
+Repeatable Read
+```
+
+---
+
+## 10. Read Uncommitted
+
+读未提交。
+
+特点：
+
+```text
+可以读到其他事务未提交的数据
+```
+
+问题：
+
+```text
+可能出现脏读
+```
+
+实际很少使用。
+
+---
+
+## 11. Read Committed
+
+读已提交。
+
+特点：
+
+```text
+只能读到其他事务已经提交的数据
+```
+
+可以避免：
+
+```text
+脏读
+```
+
+但可能出现：
+
+```text
+不可重复读
+幻读
+```
+
+Oracle 默认隔离级别通常是 RC。
+
+---
+
+## 12. Repeatable Read
+
+可重复读。
+
+特点：
+
+```text
+同一个事务中，多次读取同一数据结果一致
+```
+
+可以避免：
+
+```text
+脏读
+不可重复读
+```
+
+InnoDB 在 RR 下通过：
+
+```text
+MVCC
+Next-Key Lock
+```
+
+基本解决幻读问题。
+
+---
+
+## 13. Serializable
+
+串行化。
+
+特点：
+
+```text
+事务串行执行
+隔离级别最高
+```
+
+优点：
+
+```text
+安全性最高
+```
+
+缺点：
+
+```text
+并发性能最差
+```
+
+实际项目中很少使用。
+
+---
+
+## 14. MVCC 和事务
+
+MVCC 是多版本并发控制。
+
+核心思想：
+
+```text
+读不加锁
+通过版本链读取符合当前事务视图的数据
+```
+
+普通快照读：
+
+```sql
+SELECT * FROM user WHERE id = 1;
+```
+
+通常走 MVCC。
+
+当前读：
+
+```sql
+SELECT * FROM user WHERE id = 1 FOR UPDATE;
+UPDATE user SET name = 'Tom' WHERE id = 1;
+```
+
+会读取最新数据，并加锁。
+
+---
+
+## 15. 快照读和当前读
+
+| 类型 | 示例 | 特点 |
+|---|---|---|
+| 快照读 | 普通 `SELECT` | 读历史版本，不加锁 |
+| 当前读 | `UPDATE`、`DELETE`、`SELECT FOR UPDATE` | 读最新版本，并加锁 |
+
+---
+
+## 16. 事务和锁
+
+事务中常见锁：
+
+```text
+行锁
+间隙锁
+Next-Key Lock
+表锁
+意向锁
+```
+
+例如：
+
+```sql
+SELECT * FROM order_info WHERE id = 1 FOR UPDATE;
+```
+
+会对符合条件的数据加锁，防止其他事务修改。
+
+---
+
+## 17. 事务提交过程
+
+简化流程：
+
+```text
+执行 SQL
+  ↓
+修改 Buffer Pool 中的数据页
+  ↓
+记录 undo log
+  ↓
+记录 redo log
+  ↓
+提交事务
+  ↓
+redo log 持久化
+  ↓
+binlog 写入
+  ↓
+事务提交成功
+```
+
+核心：
+
+```text
+undo log 保证回滚
+redo log 保证崩溃恢复
+binlog 用于主从复制和恢复
+```
+
+---
+
+## 18. 事务失效常见场景
+
+如果在 Spring 中使用 `@Transactional`，事务可能失效：
+
+```text
+方法不是 public
+同类内部方法调用
+异常被 catch 没抛出
+默认只回滚 RuntimeException
+数据库表不支持事务
+没有被 Spring 管理
+多线程中执行事务方法
+事务传播行为设置不当
+```
+
+---
+
+## 19. 使用事务注意事项
+
+- 事务不要太大。
+- 事务中不要做远程调用。
+- 事务中不要执行耗时操作。
+- 尽量使用索引条件更新。
+- 避免长事务。
+- 避免事务中等待用户输入。
+- 锁粒度尽量小。
+- 及时提交或回滚。
+- 写接口要保证幂等。
+- 高并发下注意死锁和锁等待。
+
+---
+
+## 20. 总结
+
+MySQL 事务是指一组 SQL 操作要么全部成功，要么全部失败。事务具备 ACID 特性：原子性、一致性、隔离性和持久性。
+
+InnoDB 中，原子性主要依赖 undo log，持久性主要依赖 redo log，隔离性主要依赖锁和 MVCC，一致性则由数据库机制和业务约束共同保证。
+
+事务并发执行时可能出现脏读、不可重复读和幻读。MySQL 支持四种隔离级别：读未提交、读已提交、可重复读和串行化。InnoDB 默认是可重复读，在该级别下通过 MVCC 和 Next-Key Lock 基本解决幻读问题。
+
+一句话总结：
+
+```text
+MySQL 事务 = ACID + undo log 回滚 + redo log 持久化 + MVCC/锁隔离；
+默认隔离级别是 Repeatable Read。
+```
