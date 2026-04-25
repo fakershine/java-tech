@@ -1,90 +1,417 @@
-[mysql cpu 占用超过 100%](https://xie.infoq.cn/article/a274e214af9b43f77119b1d90)
+# MySQL 占用 CPU 超过 100% 怎么排查
 
-## mysql 的 cpu 占用率高，大部分情况都是因为慢 sql 语句导致的
+MySQL CPU 超过 100% 不一定异常。  
+在 Linux 中，`top` 显示的是 **单核百分比**，如果机器是多核：
 
-- show global status; 列出 MySQL 服务器运行各种状态值
-- show variables; 查询 MySQL 服务器配置信息
+```text
+100% = 占满 1 个 CPU 核
+400% = 占满 4 个 CPU 核
+```
 
-## 1.慢查询
+所以要结合机器 CPU 核数判断是否真的异常。
 
-- show variables like "%slow%";
-- 打开慢查询日志可能会对系统性能有一点点影响，如果你的 MySQL 是主－从结构，可以考虑打开其中一台从服务器的慢查询日志，这样既可以监控慢查询，对系统性能影响又小。
+---
 
-## 2.Too many connections
+## 1. 常见原因
 
-- (1)访问量确实很高，MySQL 服务器抗不住，这个时候就要考虑增加从服务器分散读压力
-- (2)MySQL 配置文件中 max_connections 值过小
-- 查询最大连接数： show variables like "%max_connections%";
-- 历史达到的最大连接数：show global status like 'Max_used_connections';
-- 建议：比较理想的设置是 Max_used_connections / max_connections * 100% ≈ 85%最大连接数占上限连接数的 85％左右
-- 如果发现比例在 10%以下，MySQL 服务器连接数上限设置的过高了。
+| 原因 | 说明 |
+|---|---|
+| 慢 SQL | SQL 扫描大量数据，CPU 计算高 |
+| 索引失效 | 没走索引，导致全表扫描 |
+| QPS 突增 | 请求量突然升高 |
+| 大量排序 / 分组 | `order by`、`group by` 消耗 CPU |
+| 大表 Join | 多表关联数据量大 |
+| 连接数过多 | 并发 SQL 太多 |
+| 锁等待 | 事务阻塞导致大量线程堆积 |
+| 频繁刷脏页 | IO 压力间接导致 CPU 升高 |
+| 主从复制压力 | SQL 线程或 IO 线程压力大 |
+| 后台任务 | 定时任务、报表、批量更新 |
 
-## 3.Key_buffer_size
+---
 
-- 查看key_buffer_size设置大小：show variables like "key_buffer_size";
-- show global status like "key_read%"： - Key_read_requests：索引读取请求数 - Key_reads：请求在内存中没有找到直接从硬盘读取索引数
-- 索引未命中缓存的概率：key_cache_miss_rate ＝ Key_reads / Key_read_requests * 100%
-- key_cache_miss_rate 在 0.1%以下都很好（每 1000 个请求有一个直接读硬盘），如果 key_cache_miss_rate 在 0.01%以下的话，key_buffer_size 分配的过多，可以适当减少。
+## 2. 排查思路
 
-- show global status like "key_blocks_u%";
-    - Key_blocks_unused：表示未使用的缓存簇(blocks)数
-    - Key_blocks_used：曾经用到的最大的 blocks 数
-    - 比较理想的设置：Key_blocks_used / (Key_blocks_unused + Key_blocks_used) * 100% ≈ 80%
+```text
+先看 CPU 是否真的异常
+  ↓
+看当前正在执行的 SQL
+  ↓
+找慢 SQL
+  ↓
+分析执行计划
+  ↓
+看连接数和锁等待
+  ↓
+看 Buffer Pool 和 IO
+  ↓
+定位业务来源
+```
 
-## 4.临时表
+---
 
-- show global status like "created_tmp%";
-- 每次创建临时表，Created_tmp_tables 增加，
-- 如果是在磁盘上创建临时表，Created_tmp_disk_tables 也增加,
-- Created_tmp_files 表示 MySQL 服务创建的临时文件文件数，比较理想的配置是：Created_tmp_disk_tables / Created_tmp_tables * 100% <= 25%
-- MySQL 服务器对临时表的配置：show variables where Variable_name in ("tmp_table_size", "max_heap_table_size");
+## 3. 查看当前连接和 SQL
 
-## 5.Open Table 情况
+```sql
+SHOW FULL PROCESSLIST;
+```
 
-- show global status like "open%tables%"; Open_tables ：打开表的数量 Opened_tables ：打开过的表数量
-- 如果 Opened_tables 数量过大，说明配置中 table_cache(5.1.3 之后这个值叫做 table_open_cache)值可能太小
-- show variables like "table_open_cache";
-- 比较合适的值为：Open_tables / Opened_tables * 100% >= 85%， Open_tables / table_cache * 100% <= 95%
+重点关注：
 
-## 6.进程使用情况
+```text
+Command
+Time
+State
+Info
+```
 
-- show global status like "Thread%";
-- 如果在 MySQL 服务器配置文件中设置了 thread_cache_size，当客户端断开之后，服务器处理此客户的线程将会缓存起来以响应下一个客户而不是销毁（前提是缓存数未达上限）。
-- Threads_created 表示创建过的线程数，如果发现 Threads_created 值过大的话，表明 MySQL 服务器一直在创建线程，这也是比较耗资源，可以适当增加配置文件中 thread_cache_size 值
-- show variables like "thread_cache_size";
+常见异常状态：
 
-## 7.查询缓存(query cache)
+```text
+Sending data
+Creating sort index
+Copying to tmp table
+Locked
+Waiting for table metadata lock
+```
 
-- MySQL 5.7.20版本废弃，MySQL 8.0.版本移除
-- show global status like "qcache%";
+如果发现某条 SQL 执行时间很长，优先分析它。
 
-## 8.排序使用情况
+---
 
-- show global status like "sort%";
-- Sort_merge_passes 包括两步。MySQL 首先会尝试在内存中做排序，使用的内存大小由系统变量 Sort_buffer_size 决定，
-- 如果它的大小不够把所有的记录都读到内存中，MySQL 就会把每次在内存中排序的结果存到临时文件中，等 MySQL 找到所有记录之后，再把临时文件中的记录做一次排序。
-- 这再次排序就会增加 Sort_merge_passes。实际上，MySQL 会用另一个临时文件来存再次排序的结果，所以通常会看到 Sort_merge_passes
-  增加的数值是建临时文件数的两倍。因为用到了临时文件，所以速度可能会比较慢，增加 Sort_buffer_size 会减少 Sort_merge_passes 和 创建临时文件的次数。
-- 但盲目的增加 Sort_buffer_size 并不一定能提高速度，见 How fast can you sort data with MySQL?（另外，增加 read_rnd_buffer_size(3.2.3 是
-  record_rnd_buffer_size)的值对排序的操作也有一点的好处
+## 4. 查看慢 SQL
 
-## 9.文件打开数(open_files)
+确认慢查询是否开启：
 
-- show global status like "%open_files%";
-- 比较合适的设置：Open_files / open_files_limit * 100% <= 75％
+```sql
+SHOW VARIABLES LIKE 'slow_query_log';
+SHOW VARIABLES LIKE 'long_query_time';
+```
 
-## 10.表锁情况
+查看慢 SQL 日志路径：
 
-- show global status like "table_locks%";
-- Table_locks_immediate 表示立即释放表锁数，
-- Table_locks_waited 表示需要等待的表锁数，
-- 如果 Table_locks_immediate / Table_locks_waited > 5000，最好采用 InnoDB 引擎，
-- 因为 InnoDB 是行锁而 MyISAM 是表锁，对于高并发写入的应用 InnoDB 效果会好些
+```sql
+SHOW VARIABLES LIKE 'slow_query_log_file';
+```
 
-## 11.表扫描情况
+重点分析：
 
-- show global status like "handler_read%";
-- show global status like "com_select"; 完成查询请求次数
-- 计算表扫描率：表扫描率 ＝ Handler_read_rnd_next / Com_select
-- 如果表扫描率超过 4000，说明进行了太多表扫描，很有可能索引没有建好，增加 read_buffer_size 值会有一些好处，但最好不要超过 8MB。
-    
+```text
+执行时间长的 SQL
+扫描行数多的 SQL
+执行频率高的 SQL
+返回行数多的 SQL
+```
+
+---
+
+## 5. 分析执行计划
+
+对可疑 SQL 执行：
+
+```sql
+EXPLAIN SELECT ...
+```
+
+重点看：
+
+| 字段 | 说明 |
+|---|---|
+| `type` | 访问类型，是否全表扫描 |
+| `key` | 是否命中索引 |
+| `rows` | 预估扫描行数 |
+| `Extra` | 是否出现临时表、文件排序 |
+
+重点关注：
+
+```text
+type = ALL
+key = NULL
+rows 很大
+Using filesort
+Using temporary
+```
+
+这些通常说明 SQL 性能较差。
+
+---
+
+## 6. 常见 SQL 问题
+
+### 1. 没有索引
+
+```sql
+SELECT * FROM order_info WHERE user_id = 1001;
+```
+
+如果 `user_id` 没有索引，会全表扫描。
+
+优化：
+
+```sql
+CREATE INDEX idx_user_id ON order_info(user_id);
+```
+
+---
+
+### 2. 索引失效
+
+常见场景：
+
+```sql
+WHERE id + 1 = 100
+WHERE DATE(create_time) = '2026-04-25'
+WHERE name LIKE '%abc'
+WHERE status != 1
+WHERE OR 条件使用不当
+```
+
+优化：
+
+```text
+避免对索引列做函数或计算
+避免左模糊查询
+遵守最左前缀原则
+合理设计联合索引
+```
+
+---
+
+### 3. 排序分组消耗 CPU
+
+```sql
+SELECT *
+FROM order_info
+WHERE status = 1
+ORDER BY create_time DESC;
+```
+
+如果排序字段没有合适索引，可能出现：
+
+```text
+Using filesort
+```
+
+优化：
+
+```sql
+CREATE INDEX idx_status_create_time
+ON order_info(status, create_time);
+```
+
+---
+
+### 4. 深分页
+
+```sql
+SELECT *
+FROM order_info
+ORDER BY id
+LIMIT 1000000, 20;
+```
+
+问题：
+
+```text
+需要扫描并丢弃大量数据
+```
+
+优化：
+
+```sql
+SELECT *
+FROM order_info
+WHERE id > last_id
+ORDER BY id
+LIMIT 20;
+```
+
+---
+
+## 7. 查看连接数
+
+```sql
+SHOW STATUS LIKE 'Threads%';
+```
+
+关注：
+
+```text
+Threads_connected
+Threads_running
+Threads_cached
+Threads_created
+```
+
+如果 `Threads_running` 很高，说明很多 SQL 正在执行，CPU 高可能是并发压力导致。
+
+查看最大连接数：
+
+```sql
+SHOW VARIABLES LIKE 'max_connections';
+```
+
+---
+
+## 8. 查看锁等待
+
+```sql
+SHOW ENGINE INNODB STATUS\G
+```
+
+重点看：
+
+```text
+TRANSACTIONS
+LATEST DETECTED DEADLOCK
+lock wait
+```
+
+也可以查：
+
+```sql
+SELECT *
+FROM information_schema.INNODB_TRX;
+```
+
+如果有长事务，会导致：
+
+```text
+锁等待
+undo 堆积
+CPU 和 IO 升高
+SQL 执行变慢
+```
+
+---
+
+## 9. 查看 Buffer Pool 命中率
+
+```sql
+SHOW ENGINE INNODB STATUS\G
+```
+
+关注：
+
+```text
+Buffer pool hit rate
+Pages read
+Pages written
+Modified db pages
+```
+
+如果命中率低：
+
+```text
+大量数据从磁盘读取
+SQL 执行慢
+CPU 和 IO 都可能升高
+```
+
+优化方向：
+
+```text
+调大 innodb_buffer_pool_size
+优化 SQL
+减少全表扫描
+减少大查询
+```
+
+---
+
+## 10. 查看是否有大事务 / 批量任务
+
+常见导致 CPU 飙高的业务：
+
+```text
+大批量 UPDATE
+大批量 DELETE
+报表统计
+全表导出
+定时任务扫描大表
+数据同步任务
+```
+
+处理方式：
+
+```text
+分批执行
+低峰执行
+增加限速
+避免大事务
+使用索引条件
+```
+
+---
+
+## 11. 临时止血方案
+
+如果已经影响线上服务，可以先止血：
+
+```text
+kill 慢 SQL
+限流入口请求
+关闭异常定时任务
+临时扩容只读实例
+切走报表流量
+回滚最近发布
+降低并发任务数量
+```
+
+Kill 慢 SQL：
+
+```sql
+KILL 连接ID;
+```
+
+连接 ID 来自：
+
+```sql
+SHOW FULL PROCESSLIST;
+```
+
+---
+
+## 12. 长期优化方案
+
+| 问题 | 优化方式 |
+|---|---|
+| 慢 SQL | 优化 SQL、加索引 |
+| 全表扫描 | 补充索引、改查询条件 |
+| 深分页 | 改成游标分页 |
+| 大表数据多 | 分库分表、冷热分离 |
+| 报表查询重 | 走数仓 / ES / 从库 |
+| 连接数过高 | 连接池限流、优化接口 |
+| 锁冲突 | 缩短事务、降低锁粒度 |
+| 读压力大 | 读写分离、缓存 |
+| 写压力大 | 分库分表、异步削峰 |
+
+---
+
+## 13. 排查流程总结
+
+```text
+1. top 确认 mysqld CPU 占用。
+2. SHOW FULL PROCESSLIST 查看当前慢 SQL。
+3. 查看慢查询日志，找高频慢 SQL。
+4. EXPLAIN 分析是否走索引。
+5. 查看 Threads_running 判断并发压力。
+6. SHOW ENGINE INNODB STATUS 查看锁等待和事务。
+7. 查看 Buffer Pool 命中率和 IO 情况。
+8. 定位业务来源，先止血再优化。
+```
+
+---
+
+## 14. 总结
+
+MySQL CPU 超过 100%，我会先确认机器 CPU 核数，因为 Linux 中 100% 表示占满一个核心。
+
+排查时先用 `top` 确认是 `mysqld` 占用 CPU，再用 `SHOW FULL PROCESSLIST` 查看当前正在执行的 SQL，重点关注执行时间长、状态异常的 SQL。然后结合慢查询日志找出高频慢 SQL，用 `EXPLAIN` 分析执行计划，看是否存在全表扫描、索引失效、扫描行数过多、`Using filesort` 或 `Using temporary`。
+
+同时还要查看连接数、锁等待、长事务、Buffer Pool 命中率和是否有批量任务。线上紧急情况下可以先 kill 异常 SQL、限流、关闭异常任务或切走流量，后续再通过加索引、改 SQL、分批处理、读写分离、缓存、分库分表等方式优化。
+
+一句话总结：
+
+```text
+MySQL CPU 高 = 先看当前 SQL，再查慢 SQL，EXPLAIN 看索引，最后排查连接数、锁等待、大事务和批量任务。
+```
