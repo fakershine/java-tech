@@ -1,73 +1,503 @@
-Tomcat的conf目录下的server.xml文件中有如下配置：
- <Connector port="8080" protocol="HTTP/1.1" connectionTimeout="20000"
-            redirectPort="8443" maxThreads="300" minSpareThreads="50"
-            acceptCount="250 enableLookups="false" maxKeepAliveRequests="1"/>
-   
- port : 在端口号8080处侦听来自客户browser的HTTP1.1请求.如果把8080改成80,则只要输入http://localhost/即可
- protocol:设定Http协议,默认值为HTTP/1.1
- connectionTimeout:定义建立客户连接超时的时间.如果为-1,表示不限制建立客户连接的时间
- 
- redirectport : 当客户请求是https时，把该请求转发到端口8443去(如连接器不支持SSL请求，如收到SSL请求，Catalina容器将会自动重定向指定的端口号，让其进行处理)
- maxThreads：设置当前Tomcat的最大并发数，默认是150，根据硬件性能和CPU数设定
- minSpareThreads: 设置当前Tomcat初始化时创建的线程数，默认为25
- maxSpareThread:允许存在空闲线程的最大数目，默认值为50
- 
- acceptCount : 当同时连接的人数达到maxThreads参数设置的值时，还可以接收排队的连接数量，超过这个连接的则直接返回拒绝连接。
-               指定当任何能够使用的处理请求的线程数都被使用时，能够放到处理队列中的请求数，超过这个数的请求将不予处理。默认值为100。
-               在实际应用中，如果想加大Tomcat的并发数 ，应该同时加大acceptCount和maxThreads的值。
+# Tomcat 总结
 
- enableLookups:是否开启域名反查，一般设置为false来提高处理能力，它的取值还有true，一般很少使用。
-               如果设为true,表示支持域名解析,可以把IP地址解析为主机名.WEB应用中调用request.getRemoteHost方法返回客户机主机名.默认值为true
-               
-maxKeepAliveRequests：服务器关闭之前，客户端发送的流水线最大数目。默认值为100
-                      nginx动态的转给tomcat，nginx是不能keepalive的，而tomcat端默认开启了keepalive，会等待keepalive的timeout，默认不设置就是使用connectionTimeout。
-                      所以必须设置tomcat的超时时间，并关闭tomcat的keepalive。否则会产生大量tomcat的socket timewait。
-                      maxKeepAliveRequests=”1”就可以避免tomcat产生大量的TIME_WAIT连接，从而从一定程度上避免tomcat假死。
- 
- allowTrace：是否允许HTTP的TRACE方法，默认为false
- emptySessionPath：如果设置为true，用户的所有路径都将设置为/，默认为false。
- maxPostSize：指定POST方式请求的最大量，没有指定默认为2097152。
- proxyName：如这个连接器正在一个代理配置中被使用，指定这个属性，在request.getServerName()时返回
- scheme：设置协议的名字，在request.getScheme()时返回，SSL连接器设为”https”，默认为”http”
- secure：在SSL连接器可将其设置为true，默认为false
- URIEncoding：用于解码URL的字符编码，没有指定默认值为ISO-8859-1
- useBodyEncodingForURI：主要用于Tomcat4.1.x中，指示是否使用在contentType中指定的编码来取代URIEncoding，用于解码URI查询参数，默认为false
- xpoweredBy：为true时，Tomcat使用规范建议的报头表明支持Servlet的规范版本，默认为false
- bufferSize：设由连接器创建输入流缓冲区的大小，以字节为单位。默认情况下，缓存区大的大小为2048字节
- compressableMimeType：MIME的列表，默认以逗号分隔。默认值是text/html，text/xml，text/plain
- compression：指定是否对响应的数据进行压缩。off：表示禁止压缩、on：表示允许压缩（文本将被压缩）、force：表示所有情况下都进行压缩，默认值为off
- disableUploadTimeOut：允许Servlet容器，正在执行使用一个较长的连接超时值，以使Servlet有较长的时间来完成它的执行，默认值为false
- maxHttpHeaderSize：HTTP请求和响应头的最大量，以字节为单位，默认值为4096字节
- socketBuffer：设Socket输出缓冲区的大小（以字节为单位），-1表示禁止缓冲，默认值为9000字节
- toNoDelay：为true时，可以提高性能。默认值为true
- threadPriority：设JVM中请求处理线程优先级。默认值为NORMAL-PRIORITY
- 
- 
-<Service name="Catalina">
-     //Connector里面的port定义访问端口，多端口定义多个Connector标签
-     <Connector connectionTimeout="20000" port="8080" protocol="HTTP/1.1" redirectPort="8443"/>
-     <Connector port="8009" protocol="AJP/1.3" redirectPort="8443"/>
-     <Engine defaultHost="localhost" name="Catalina">
-       <Realm className="org.apache.catalina.realm.LockOutRealm">
-         <Realm className="org.apache.catalina.realm.UserDatabaseRealm" resourceName="UserDatabase"/>
-       </Realm>
-       //name定义访问域名，多域名定义多个Host标签
-       <Host appBase="webapps" autoDeploy="true" name="localhost" unpackWARs="true">
-         <Valve className="org.apache.catalina.valves.AccessLogValve" directory="logs" pattern="%h %l %u %t &quot;%r&quot; %s %b" prefix="localhost_access_log." suffix=".txt"/>
-       </Host>
-     </Engine>
-</Service>
+Tomcat 是一个 **Servlet 容器 / Web 容器**，主要用于运行 Java Web 应用。
 
-1.多项目使用同一域名(多端口访问)
-配置多个Connector设置多个端口，并且Host标签里面加上：
-<!--注意：docBase　要使用绝对路径 -->
-<Context docBase="/usr/local/tomcat/webapps/testHostA" path="/testA" reloadable="true" autodeploy="true" />
-<Context docBase="/usr/local/tomcat/webapps/testHostB" path="/testB" reloadable="true"  autodeploy="true" />
- 访问路径：localhost:8080/testA
-          localhost:8080/testB
-          localhost:8009/testA
-          localhost:8009/testB
-2.不同项目不同域名（统一端口）
-配置多个Host标签，设置域名，并在Host标签里面配置Context标签指定该域名访问项目
-3.多域名多端口访问
-配置多个service，每个service对应自己的端口配置
+核心作用：
+
+```text
+接收 HTTP 请求
+  ↓
+解析请求
+  ↓
+调用 Servlet / Spring MVC
+  ↓
+返回 HTTP 响应
+```
+
+---
+
+## 1. Tomcat 是什么
+
+Tomcat 本质上是：
+
+```text
+HTTP 服务器 + Servlet 容器
+```
+
+它可以：
+
+- 监听端口。
+- 接收 HTTP 请求。
+- 解析请求参数。
+- 管理 Servlet 生命周期。
+- 调用业务代码。
+- 返回 HTTP 响应。
+
+在 Spring Boot 中，默认内嵌的 Web 容器通常就是 Tomcat。
+
+---
+
+## 2. Tomcat 核心组件
+
+| 组件 | 作用 |
+|---|---|
+| Server | Tomcat 顶层组件，代表整个 Tomcat 实例 |
+| Service | 连接 Connector 和 Container |
+| Connector | 接收客户端请求 |
+| Container | 处理请求 |
+| Engine | Servlet 引擎 |
+| Host | 虚拟主机 |
+| Context | 一个 Web 应用 |
+| Wrapper | 一个 Servlet |
+
+结构：
+
+```text
+Server
+  ↓
+Service
+  ├── Connector
+  └── Container
+        ↓
+      Engine
+        ↓
+      Host
+        ↓
+      Context
+        ↓
+      Wrapper
+```
+
+---
+
+## 3. Connector
+
+### 作用
+
+Connector 负责网络通信。
+
+主要职责：
+
+```text
+监听端口
+接收 TCP 连接
+解析 HTTP 请求
+封装 Request / Response
+把请求交给 Container
+```
+
+常见协议：
+
+```text
+HTTP/1.1
+AJP
+```
+
+常见 IO 模型：
+
+```text
+BIO
+NIO
+APR
+```
+
+现在常用：
+
+```text
+NIO
+```
+
+---
+
+## 4. Container
+
+### 作用
+
+Container 负责处理请求，并找到对应的 Servlet。
+
+处理链路：
+
+```text
+Engine
+  ↓
+Host
+  ↓
+Context
+  ↓
+Wrapper
+  ↓
+Servlet
+```
+
+对应关系：
+
+```text
+Engine：整个 Servlet 引擎
+Host：一个虚拟主机
+Context：一个 Web 应用
+Wrapper：一个 Servlet
+```
+
+---
+
+## 5. Tomcat 请求处理流程
+
+```text
+客户端发送 HTTP 请求
+  ↓
+Connector 接收连接
+  ↓
+解析 HTTP 请求
+  ↓
+封装 Request 和 Response
+  ↓
+交给 Container
+  ↓
+匹配 Host
+  ↓
+匹配 Context
+  ↓
+匹配 Servlet
+  ↓
+执行 Filter 链
+  ↓
+调用 Servlet
+  ↓
+返回响应
+```
+
+如果是 Spring MVC：
+
+```text
+请求
+  ↓
+Tomcat
+  ↓
+DispatcherServlet
+  ↓
+HandlerMapping
+  ↓
+Controller
+  ↓
+Service
+  ↓
+Response
+```
+
+---
+
+## 6. Servlet 生命周期
+
+Tomcat 负责管理 Servlet 生命周期。
+
+```text
+加载 Servlet 类
+  ↓
+实例化 Servlet
+  ↓
+调用 init()
+  ↓
+处理请求 service()
+  ↓
+关闭时调用 destroy()
+```
+
+核心方法：
+
+| 方法 | 说明 |
+|---|---|
+| `init()` | Servlet 初始化 |
+| `service()` | 处理请求 |
+| `destroy()` | Servlet 销毁 |
+
+---
+
+## 7. Tomcat 线程模型
+
+Tomcat 会使用线程池处理请求。
+
+简化流程：
+
+```text
+Acceptor 接收连接
+  ↓
+Poller 监听 IO 事件
+  ↓
+Worker 线程处理请求
+```
+
+NIO 模型下：
+
+| 线程 | 作用 |
+|---|---|
+| Acceptor | 接收客户端连接 |
+| Poller | 监听连接上的读写事件 |
+| Worker | 处理具体请求 |
+
+---
+
+## 8. 关键参数
+
+| 参数 | 说明 |
+|---|---|
+| `server.port` | 服务端口 |
+| `maxThreads` | 最大工作线程数 |
+| `minSpareThreads` | 最小空闲线程数 |
+| `acceptCount` | 等待队列长度 |
+| `maxConnections` | 最大连接数 |
+| `connectionTimeout` | 连接超时时间 |
+| `keepAliveTimeout` | KeepAlive 超时时间 |
+
+Spring Boot 示例：
+
+```yaml
+server:
+  port: 8080
+  tomcat:
+    threads:
+      max: 200
+      min-spare: 20
+    accept-count: 100
+    max-connections: 8192
+    connection-timeout: 20s
+```
+
+---
+
+## 9. maxThreads
+
+### 作用
+
+`maxThreads` 表示 Tomcat 最大工作线程数。
+
+```text
+请求真正被业务处理时，需要占用 Worker 线程
+```
+
+如果线程数不够：
+
+```text
+请求排队
+RT 升高
+甚至超时
+```
+
+调优建议：
+
+```text
+CPU 密集型：线程数不宜过大
+IO 密集型：可以适当调大
+```
+
+---
+
+## 10. acceptCount
+
+### 作用
+
+当工作线程都忙，且连接数达到上限后，新请求会进入等待队列。
+
+`acceptCount` 表示等待队列长度。
+
+```text
+线程满
+  ↓
+请求进入队列
+  ↓
+队列也满
+  ↓
+新请求被拒绝
+```
+
+---
+
+## 11. maxConnections
+
+### 作用
+
+表示 Tomcat 能同时建立的最大连接数。
+
+```text
+连接数过大：占用内存和 FD
+连接数过小：高并发下连接被拒绝
+```
+
+需要结合：
+
+```text
+系统 fd 限制
+机器内存
+请求耗时
+QPS
+```
+
+一起调优。
+
+---
+
+## 12. Tomcat 和 Spring MVC 关系
+
+Tomcat 是 Web 容器。
+
+Spring MVC 的核心是：
+
+```text
+DispatcherServlet
+```
+
+关系：
+
+```text
+Tomcat 接收 HTTP 请求
+  ↓
+Tomcat 调用 DispatcherServlet
+  ↓
+DispatcherServlet 分发到 Controller
+```
+
+简单理解：
+
+```text
+Tomcat 负责接请求
+Spring MVC 负责处理业务路由
+```
+
+---
+
+## 13. Tomcat 和 Nginx 区别
+
+| 对比项 | Nginx | Tomcat |
+|---|---|---|
+| 定位 | Web 服务器 / 反向代理 | Servlet 容器 |
+| 主要作用 | 静态资源、代理、负载均衡 | 运行 Java Web 应用 |
+| 性能 | 静态资源性能强 | 动态 Java 请求处理 |
+| 是否执行 Java 代码 | 否 | 是 |
+
+常见架构：
+
+```text
+客户端
+  ↓
+Nginx
+  ↓
+Tomcat
+  ↓
+Java 应用
+```
+
+---
+
+## 14. Tomcat 常见优化
+
+### 线程池优化
+
+```text
+合理设置 maxThreads
+避免线程过多导致上下文切换
+```
+
+### 连接数优化
+
+```text
+调整 maxConnections
+调整 acceptCount
+调整 keepAliveTimeout
+```
+
+### JVM 优化
+
+```text
+合理设置 Xms / Xmx
+选择合适 GC
+观察 GC 日志
+```
+
+### 静态资源优化
+
+```text
+静态资源交给 Nginx / CDN
+Tomcat 专注处理动态请求
+```
+
+### 超时优化
+
+```text
+设置连接超时
+设置业务接口超时
+避免慢请求占满线程
+```
+
+---
+
+## 15. 常见问题
+
+### 1. Tomcat 线程打满会怎样？
+
+表现：
+
+```text
+接口变慢
+请求排队
+RT 升高
+504 超时
+```
+
+原因可能是：
+
+```text
+慢 SQL
+下游接口慢
+锁竞争
+线程池过小
+请求量过大
+```
+
+---
+
+### 2. Tomcat 能处理多少并发？
+
+取决于：
+
+```text
+机器配置
+maxThreads
+maxConnections
+接口耗时
+数据库能力
+Redis 能力
+下游服务能力
+```
+
+不能只看 Tomcat 参数。
+
+---
+
+### 3. Spring Boot 为什么不用外部 Tomcat？
+
+Spring Boot 默认内嵌 Tomcat。
+
+优势：
+
+```text
+部署简单
+直接 java -jar 启动
+环境一致
+适合微服务
+```
+
+---
+
+## 16. 总结
+
+Tomcat 是一个 Servlet 容器，负责接收 HTTP 请求、解析请求、封装 Request 和 Response，并调用对应的 Servlet 处理请求。
+
+Tomcat 的核心组件包括 Server、Service、Connector、Container、Engine、Host、Context、Wrapper。Connector 负责网络连接和协议解析，Container 负责请求处理和 Servlet 调用。
+
+在 Spring MVC 项目中，请求先进入 Tomcat，再由 Tomcat 调用 `DispatcherServlet`，最后分发到具体 Controller。
+
+一句话总结：
+
+```text
+Tomcat = HTTP 服务器 + Servlet 容器；
+Connector 负责接请求，Container 负责找 Servlet 并执行。
+```

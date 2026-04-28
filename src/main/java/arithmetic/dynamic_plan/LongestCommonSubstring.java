@@ -22,127 +22,70 @@ public class LongestCommonSubstring {
         System.out.println(lcs(str1, str2));
     }
 
-    public static String lcs(String str1, String str2) {
-        List<List<Character>> sub = new ArrayList<>();
-        //是否已初始化集合
-        boolean init = false;
-        for (int i = 0; i < str1.length(); i++) {
-            for (int start = 0, j = start, idx = i; j < str2.length() && idx < str1.length(); ) {
-                if (init) {
-                    //非第一次进来
-                    j++;
-                    if (j >= str2.length()) {
-                        break;
-                    }
-                }
-                //当相等的时候，加入集合
-                char c1 = str1.charAt(idx);
-                char c2 = str2.charAt(j);
-                if (c1 == c2) {
-                    if (!init) {
-                        //初始化集合
-                        sub.add(new ArrayList<>());
-                        init = true;
-                    }
-                    //添加到集合
-                    sub.get(sub.size() - 1).add(str1.charAt(idx));
-                    idx++;
-                } else {
-                    start++;
-                    //重置开始位置
-                    j = start;
-                    idx = i;
-                    init = false;
-                }
-            }
-
-            init = false;
+     public String lcs1(String str1, String str2) {
+        if (str1 == null || str2 == null || str1.length() == 0 || str2.length() == 0) {
+            return "";
         }
-        List<List<Character>> collect = sub.stream().filter(x -> x.size() >= 24).collect(Collectors.toList());
-        String maxStr = "";
-        for (int i = 0; i < sub.size(); i++) {
-            List<Character> list = sub.get(i);
-            if (maxStr.length() > list.size()) {
-                continue;
-            }
-            maxStr = "";
-            for (int j = 0; j < list.size(); j++) {
-                maxStr += list.get(j);
-            }
-        }
-        return maxStr;
-    }
 
-    /**
-     * 枚举法
-     * 时间复杂度O(m^2n)
-     * 其中m是str1的长度，n是str2的长度，分别枚举两个字符串每个字符作为起点，后续检查子串长度最坏需要花费O(n)
-     * 空间复杂度O(n)  res属于返回必要空间，temps属于临时辅助空间，最坏情况下长度为n
-     *
-     * @param str1
-     * @param str2
-     * @return
-     */
-    public static String lcs2(String str1, String str2) {
-        int length = 0;
-        String res = "";
-        //遍历s1每个起始点
-        for (int i = 0; i < str1.length(); i++) {
-            //遍历s2每个起点
-            for (int j = 0; j < str2.length(); j++) {
-                int count = 0;
-                int x = i, y = j;
-                //比较每个起点为始的子串
-                while (x < str1.length() && y < str2.length() && str1.charAt(x) == str2.charAt(y)) {
-                    x++;
-                    y++;
-                    count++;
-                }
-                //更新更大的长度子串
-                if (length < count) {
-                    length = count;
-                    res = str1.substring(i, x);
-                }
-            }
-        }
-        return res;
-    }
+        int m = str1.length();
+        int n = str2.length();
 
-    /**
-     * 动态规划
-     * 时间复杂度O(mn):其中m是str1的长度，n是str2的长度，遍历两个字符串所有字符
-     * 空间复杂度:O(mn),dp数组大小为m*n
-     *
-     * @param str1
-     * @param str2
-     * @return
-     */
-    public static String lcs3(String str1, String str2) {
-        //dp[i][j]表示到str1第i个个到str2第j个为止的公共子串长度
-        int[][] dp = new int[str1.length() + 1][str2.length() + 1];
-        int max = 0;
-        int pos = 0;
-        for (int i = 1; i <= str1.length(); i++) {
-            for (int j = 1; j <= str2.length(); j++) {
-                //如果该两位相同
+        int[][] dp = new int[m + 1][n + 1];
+
+        int maxLen = 0;
+        int endIndex = 0; // 记录最长公共子串在 str1 中的结束位置
+
+        for (int i = 1; i <= m; i++) {
+            for (int j = 1; j <= n; j++) {
                 if (str1.charAt(i - 1) == str2.charAt(j - 1)) {
-                    //则增加长度
                     dp[i][j] = dp[i - 1][j - 1] + 1;
+
+                    if (dp[i][j] > maxLen) {
+                        maxLen = dp[i][j];
+                        endIndex = i;
+                    }
                 } else {
-                    //该位置为0
                     dp[i][j] = 0;
                 }
-                if (dp[i][j] > max) {
-                    //更新最大长度
-                    max = dp[i][j];
-                    pos = i - 1;
+            }
+        }
+
+        return str1.substring(endIndex - maxLen, endIndex);
+    }
+
+   public String lcs2(String str1, String str2) {
+        if (str1 == null || str2 == null || str1.length() == 0 || str2.length() == 0) {
+            return "";
+        }
+
+        int m = str1.length();
+        int n = str2.length();
+
+        int[] dp = new int[n + 1];
+
+        int maxLen = 0;
+        int endIndex = 0;
+
+        for (int i = 1; i <= m; i++) {
+            // 必须倒序，防止 dp[j - 1] 被当前行覆盖
+            for (int j = n; j >= 1; j--) {
+                if (str1.charAt(i - 1) == str2.charAt(j - 1)) {
+                    dp[j] = dp[j - 1] + 1;
+
+                    if (dp[j] > maxLen) {
+                        maxLen = dp[j];
+                        endIndex = i;
+                    }
+                } else {
+                    dp[j] = 0;
                 }
             }
         }
-        return str1.substring(pos - max + 1, pos + 1);
+
+        return str1.substring(endIndex - maxLen, endIndex);
     }
 
-    public static String lcs4(String str1, String str2) {
+    public static String lcs3(String str1, String str2) {
         // write code here
         int start = 0;
         int end = 1;

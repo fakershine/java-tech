@@ -13,76 +13,64 @@ public class LongestIncreaseSubsequence {
         System.out.println(lis(array));
     }
 
-    /**
-     * 哪里有问题？
-     *
-     * @param arr
-     * @return
-     */
-    public static int lis(int[] arr) {
-        int[] temp = new int[arr.length];
-        boolean has = false;
-        int hasIdx = 0;
-        int start = 0;
-        for (int i = 0; i < arr.length; i++) {
-            int j;
-            if (has) {
-                //如果有比当前值大的，则需要再遍历
-                i = start;
-                //从遇到第一个比自己大的下一个开始
-                j = hasIdx + 1;
-                has = false;
-            } else {
-                //下一位
-                j = i + 1;
-            }
-            //初始化，自己为最大值
-            int max = arr[i];
-            int length = 1;
-            for (; j < arr.length; j++) {
-                int value = arr[j];
-                if (max <= value) {
-                    if (!has) {
-                        start = i;
-                        has = true;
-                        hasIdx = j;
-                    }
-                    max = value;
-                    length++;
-                }
-            }
-            temp[i] = Math.max(length, temp[i]);
+    public int LIS(int[] arr) {
+        if (arr == null || arr.length == 0) {
+            return 0;
         }
 
-        int lis = 0;
-        for (int i = 0; i < temp.length; i++) {
-            lis = Math.max(lis, temp[i]);
-        }
-        return lis;
-    }
+        int n = arr.length;
+        int[] dp = new int[n];
 
-    /**
-     * @param arr
-     * @return
-     */
-    public static int lcs2(int[] arr) {
-        int[] dp = new int[arr.length];
-        //设置数组长度大小的动态规划辅助数组
-        Arrays.fill(dp, 1);
-        int res = 0;
-        for (int i = 1; i < arr.length; i++) {
+        int max = 1;
+
+        for (int i = 0; i < n; i++) {
+            dp[i] = 1;
+
             for (int j = 0; j < i; j++) {
-                //可能j不是所需要的最大的，因此需要dp[i] < dp[j] + 1
-                if (arr[i] > arr[j] && dp[i] < dp[j] + 1) {
-                    //i点比j点大，理论上dp要加1
-                    dp[i] = dp[j] + 1;
-                    //找到最大长度
-                    res = Math.max(res, dp[i]);
+                if (arr[j] < arr[i]) {
+                    dp[i] = Math.max(dp[i], dp[j] + 1);
                 }
             }
+
+            max = Math.max(max, dp[i]);
         }
-        return res;
+
+        return max;
     }
+
+     public int LIS(int[] arr) {
+        if (arr == null || arr.length == 0) {
+            return 0;
+        }
+
+        int[] tails = new int[arr.length];
+        int size = 0;
+
+        for (int num : arr) {
+            int left = 0;
+            int right = size;
+
+            // 找第一个 >= num 的位置
+            while (left < right) {
+                int mid = left + (right - left) / 2;
+
+                if (tails[mid] < num) {
+                    left = mid + 1;
+                } else {
+                    right = mid;
+                }
+            }
+
+            tails[left] = num;
+
+            if (left == size) {
+                size++;
+            }
+        }
+
+        return size;
+    }
+
 
     public int lcs3(int[] arr) {
         // write code here
