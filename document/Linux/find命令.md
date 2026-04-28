@@ -1,99 +1,512 @@
-- 基于name查找文件
-  - 查找/目录下名称为tecmint.txt的文件
-  - find / -name tecmint.txt
-  - find / -iname tecmint.txt #忽略大小写
-  - find / -type f -name tecmint.txt
-  - find / -type d -name a  #查找/目录下名称为a的目录
-  - find / -type f -name "*.sh" #查找/目录下.sh后缀的文件
-- 基于权限查询文件
-  - find . -type f -perm 0777 -print #查找权限为777的所有文件
-  - find / -type f ! -perm 777 #查找所有文件未经许可777
-  - find / -perm 2644 #查找权限设置为644的所有SGID位文件
-  - find / -perm 1551 #查找权限为551的所有Sticky Bit设置文件
-  - find / -perm /u=s #查找所有SUID集文件
-  - find / -perm /g+s #查找所有SGID设置文件
-  - find / -perm /u=r #查找所有只读文件
-  - find / -perm /a=x #查找所有可执行文件
-  - find / -type f -perm 0777 -print -exec chmod 644 {} #查找所有777个权限文件，并使用chmod命令将权限设置为644
-  - find / -type d -perm 777 -print -exec chmod 755 {} #查找所有777个权限目录，并使用chmod命令将权限设置为755
-  - find . -type f -name "tecmint.txt" -exec rm -f {} #查找并删除单个文件
-  - find . -type f -name "*.txt" -exec rm -f{} #查找和删除多个文件 
-  - find . -type f -name "*.mp3" -exec rm -f{} #查找和删除多个文件 
-  - find /tmp -type f -empty  #在/tmp路径下查找所有空文件
-  - find /tmp -type d -empty  #将/tmp路径下的所有空目录
-  - find /tmp -type f -name ".*" #要查找所有隐藏的文件，请使用以下命令
+# Linux find 命令
 
-- 基于用户和组查询文件
-  - find / -user root -name tecmint.txt  #在所有者root的/ root目录下查找名为tecmint.txt的所有或单个文件
-  - find /home -user tecmint #查找/ home目录下属于用户tecmint的所有文件
-  - find /home -group developer #查找/ home目录下属于Group Developer的所有文件
-  - find /home -user tecmint -iname "*.txt" #查找home目录下的用户tecmint的所有.txt文件 
+## 1. find 是什么
 
-- 基于时间查询文件或目录
-  - find / -mtime 50 #查找50天后修改的所有文件
-  - find / -atime 50 #查找50天后访问的所有文件
-  - find / -mtime +50 –mtime -100 #查找所有被修改超过50天以及少于100天的文件
-  - find / -cmin -60 #查找最近1小时内更改的所有文件
-  - find / -mmin -60 #查找最近1小时内修改的所有文件
-  - find / -amin -60 #查找最近1小时内访问的文件
+`find` 用于在指定目录下查找文件或目录。
 
-- 基于大小查询文件或目录
-  - find / -size 50M  #找到所有50MB的文件
-  - find / -size +50M -size -100M  #找到大于50MB且小于100MB的所有文件
-  - find / -size +100M -exec rm -rf {} #查找所有100MB文件并使用一个命令删除它们
-  - find / -type f -name *.mp3 -size +10M -exec rm {} #查找超过10MB的所有.mp3文件，并使用一个命令删除它们
+基本语法：
 
+```bash
+find 查找路径 查找条件 执行动作
+```
 
+示例：
 
-- 查找空文件或空目录
-  1. 查找空文件
-    - find ./ -size 0 #查找当前目录下大小为0的文件
-    - find -type f -empty # -type f指明了要查找的是文件
-  2. 查找空目录
-    - find -type d -empty # -type d指明了要查找的是目录
-- 查找时排除文件或目录
-  1. 查找时排除文件
-    - find ./ -name "*test*"  ! -name "*.log" #排除.log文件
-  2. 查找时排除目录
-    - find .  -path ./test -prune -o -name "*.txt"
-    - find ./ ( -path "./test" -o -path "./home" ) -prune -o -name "*.txt" 
-    - find ./ -name "*.txt" ! -path "./test"
-### 对查找到的文件执行命令操作
-1. 利用xargs
-  - find -name "*.log" | xargs rm -f #找到.log文件后，删除
-  - find -name "*test" | xargs chmod 755 #将找到文件的权限修改为755
-  - find -name "*test" | xargs grep "hello" #查找包含hello字符串的test文件
-2. 利用-exec参数
-  - find ./ -name "*txt"  -exec rm -f {} ;#找到后删除
-  - find ./ -name "*txt"  -exec cp {} ./test ;#找到后复制至test目录下
-3. 利用-ok参数，它与-exec的差别在于，它会询问用户
-  - find ./ -name "*.log" -ok ls -al {}
-4. 利用-delete参数
-  - find ./ -name "*.log" -delete #删除以log为后缀的文件
+```bash
+find /home -name "*.log"
+```
 
-  
-- 常用的条件组合参数有-a(and),-o(or),!(not)
-  - find ./ -type f -o -type l #查找普通文件和符号链接文件
-  - find ./ -name "*.zip" -o -name "*.gz" #在当前目录下查找zip包和gz包
-  - find ./ -name "*test" -a -type l  #查找名为test的符号链接文件
-  - find ./ ! -name "*.log" #查找log文件以外的文件
+表示在 `/home` 目录下查找所有 `.log` 文件。
 
-- 查找比某文件新或某文件旧的文件
-  - newer 修改时间更新的
-  - anewer 访问时间更新的
-  - ctime 修改时间更新的，包括属性的修改
-  - find ./ ! -newer 1.log | xargs ls -al #列出比1.log更旧的文件
-  - find ./  -newer 1.log | xargs ls -al #列出比1.log更新的文件
+---
 
-- 查找结果以特定格式输出
-  - find ./ -name "*.log" -printf "%f %a %M %s
-  - %f 文件名
-  - %a 访问时间
-  - %c 修改时间
-  - %M 权限信息
-  - %m 权限位信息
-  - %s 文件大小，单位为字节
-  - %d 文件所在目录层级
-  - %u 文件所属用户
-  - %p 带相对路径的完整名
-  - %y 文件类型
+## 2. 按文件名查找
+
+### 精确匹配文件名
+
+```bash
+find /home -name "test.txt"
+```
+
+### 忽略大小写
+
+```bash
+find /home -iname "test.txt"
+```
+
+可以匹配：
+
+```text
+test.txt
+Test.txt
+TEST.txt
+```
+
+### 使用通配符
+
+```bash
+find /var/log -name "*.log"
+```
+
+查找所有 `.log` 文件。
+
+---
+
+## 3. 按文件类型查找
+
+| 类型 | 说明 |
+|---|---|
+| `f` | 普通文件 |
+| `d` | 目录 |
+| `l` | 软链接 |
+| `b` | 块设备 |
+| `c` | 字符设备 |
+| `s` | socket 文件 |
+| `p` | 管道文件 |
+
+### 查找普通文件
+
+```bash
+find /home -type f
+```
+
+### 查找目录
+
+```bash
+find /home -type d
+```
+
+### 查找软链接
+
+```bash
+find /home -type l
+```
+
+---
+
+## 4. 按文件大小查找
+
+| 写法 | 说明 |
+|---|---|
+| `+100M` | 大于 100MB |
+| `-100M` | 小于 100MB |
+| `100M` | 等于 100MB |
+
+常用单位：
+
+| 单位 | 说明 |
+|---|---|
+| `c` | 字节 |
+| `k` | KB |
+| `M` | MB |
+| `G` | GB |
+
+### 查找大于 100MB 的文件
+
+```bash
+find / -type f -size +100M
+```
+
+### 查找小于 10KB 的文件
+
+```bash
+find /home -type f -size -10k
+```
+
+### 查找大于 1GB 的文件
+
+```bash
+find / -type f -size +1G
+```
+
+---
+
+## 5. 按修改时间查找
+
+### 常用时间参数
+
+| 参数 | 说明 |
+|---|---|
+| `-mtime` | 按文件内容修改时间，单位：天 |
+| `-mmin` | 按文件内容修改时间，单位：分钟 |
+| `-atime` | 按访问时间，单位：天 |
+| `-amin` | 按访问时间，单位：分钟 |
+| `-ctime` | 按状态变更时间，单位：天 |
+| `-cmin` | 按状态变更时间，单位：分钟 |
+
+### 查找 7 天前修改过的文件
+
+```bash
+find /home -type f -mtime +7
+```
+
+### 查找 7 天内修改过的文件
+
+```bash
+find /home -type f -mtime -7
+```
+
+### 查找最近 30 分钟修改过的文件
+
+```bash
+find /home -type f -mmin -30
+```
+
+### 查找 30 分钟前修改过的文件
+
+```bash
+find /home -type f -mmin +30
+```
+
+---
+
+## 6. 按权限查找
+
+### 查找权限为 777 的文件
+
+```bash
+find /home -type f -perm 777
+```
+
+### 查找有执行权限的文件
+
+```bash
+find /home -type f -perm /111
+```
+
+### 查找用户有写权限的文件
+
+```bash
+find /home -type f -perm /200
+```
+
+---
+
+## 7. 按用户和用户组查找
+
+### 查找属于某个用户的文件
+
+```bash
+find /home -user tom
+```
+
+### 查找属于某个用户组的文件
+
+```bash
+find /home -group dev
+```
+
+### 查找没有所属用户的文件
+
+```bash
+find / -nouser
+```
+
+### 查找没有所属用户组的文件
+
+```bash
+find / -nogroup
+```
+
+---
+
+## 8. 多条件查找
+
+### 与条件
+
+默认就是与条件：
+
+```bash
+find /home -type f -name "*.log" -size +100M
+```
+
+表示查找 `.log` 文件，并且大小大于 100MB。
+
+---
+
+### 或条件
+
+```bash
+find /home \( -name "*.log" -o -name "*.txt" \)
+```
+
+表示查找 `.log` 或 `.txt` 文件。
+
+---
+
+### 非条件
+
+```bash
+find /home -type f ! -name "*.log"
+```
+
+表示查找不是 `.log` 的普通文件。
+
+---
+
+## 9. 查找后删除
+
+### 删除 `.log` 文件
+
+```bash
+find /home -type f -name "*.log" -delete
+```
+
+### 删除 7 天前的日志
+
+```bash
+find /var/log -type f -name "*.log" -mtime +7 -delete
+```
+
+更安全的写法是先查看：
+
+```bash
+find /var/log -type f -name "*.log" -mtime +7
+```
+
+确认无误后再删除。
+
+---
+
+## 10. 查找后执行命令
+
+### 使用 `-exec`
+
+```bash
+find /home -type f -name "*.log" -exec ls -lh {} \;
+```
+
+说明：
+
+| 符号 | 说明 |
+|---|---|
+| `{}` | 表示 find 找到的文件 |
+| `\;` | 表示命令结束 |
+
+---
+
+### 删除查找到的文件
+
+```bash
+find /home -type f -name "*.tmp" -exec rm -f {} \;
+```
+
+---
+
+### 批量修改权限
+
+```bash
+find /home -type f -name "*.sh" -exec chmod +x {} \;
+```
+
+---
+
+### 批量移动文件
+
+```bash
+find /home -type f -name "*.log" -exec mv {} /tmp/logs/ \;
+```
+
+---
+
+## 11. 使用 xargs
+
+`xargs` 可以把 `find` 的结果传给其他命令。
+
+### 删除文件
+
+```bash
+find /home -type f -name "*.tmp" | xargs rm -f
+```
+
+### 查看文件大小
+
+```bash
+find /home -type f -name "*.log" | xargs ls -lh
+```
+
+### 更安全地处理带空格文件名
+
+```bash
+find /home -type f -name "*.log" -print0 | xargs -0 ls -lh
+```
+
+---
+
+## 12. 查找空文件和空目录
+
+### 查找空文件
+
+```bash
+find /home -type f -empty
+```
+
+### 查找空目录
+
+```bash
+find /home -type d -empty
+```
+
+### 删除空目录
+
+```bash
+find /home -type d -empty -delete
+```
+
+---
+
+## 13. 限制查找深度
+
+### 只查找当前目录，不递归子目录
+
+```bash
+find /home -maxdepth 1 -type f
+```
+
+### 最多查找 2 层目录
+
+```bash
+find /home -maxdepth 2 -type f
+```
+
+### 至少从第 2 层开始查找
+
+```bash
+find /home -mindepth 2 -type f
+```
+
+---
+
+## 14. 按文件内容配合 grep 查找
+
+### 查找包含 error 的日志文件
+
+```bash
+find /var/log -type f -name "*.log" -exec grep -n "error" {} \;
+```
+
+### 显示文件名
+
+```bash
+find /var/log -type f -name "*.log" -exec grep -Hn "error" {} \;
+```
+
+### 使用 xargs
+
+```bash
+find /var/log -type f -name "*.log" | xargs grep -n "error"
+```
+
+---
+
+## 15. 常用实战命令
+
+### 查找当前目录下所有 Java 文件
+
+```bash
+find . -name "*.java"
+```
+
+### 查找当前目录下所有目录
+
+```bash
+find . -type d
+```
+
+### 查找大于 500MB 的文件
+
+```bash
+find / -type f -size +500M
+```
+
+### 查找最近 1 天修改过的文件
+
+```bash
+find . -type f -mtime -1
+```
+
+### 查找最近 10 分钟修改过的文件
+
+```bash
+find . -type f -mmin -10
+```
+
+### 查找 30 天前的日志并删除
+
+```bash
+find /var/log -type f -name "*.log" -mtime +30 -delete
+```
+
+### 查找所有空文件
+
+```bash
+find . -type f -empty
+```
+
+### 查找所有空目录
+
+```bash
+find . -type d -empty
+```
+
+### 查找权限为 777 的文件
+
+```bash
+find / -type f -perm 777
+```
+
+### 查找并批量修改权限
+
+```bash
+find . -type f -name "*.sh" -exec chmod +x {} \;
+```
+
+### 查找文件并显示详细信息
+
+```bash
+find . -type f -name "*.log" -exec ls -lh {} \;
+```
+
+---
+
+## 16. find 常用参数总结
+
+| 参数 | 说明 |
+|---|---|
+| `-name` | 按名称查找，区分大小写 |
+| `-iname` | 按名称查找，忽略大小写 |
+| `-type f` | 查找普通文件 |
+| `-type d` | 查找目录 |
+| `-size` | 按文件大小查找 |
+| `-mtime` | 按修改时间查找，单位天 |
+| `-mmin` | 按修改时间查找，单位分钟 |
+| `-user` | 按所属用户查找 |
+| `-group` | 按所属用户组查找 |
+| `-perm` | 按权限查找 |
+| `-empty` | 查找空文件或空目录 |
+| `-delete` | 删除查找到的文件 |
+| `-exec` | 对查找到的文件执行命令 |
+| `-maxdepth` | 限制最大查找深度 |
+| `-mindepth` | 限制最小查找深度 |
+
+---
+
+## 17. 工作常用命令
+
+| 场景 | 命令 |
+|---|---|
+| 查找文件名 | `find . -name "app.log"` |
+| 查找某类文件 | `find . -name "*.java"` |
+| 查找目录 | `find . -type d -name "logs"` |
+| 查找大文件 | `find / -type f -size +1G` |
+| 查找最近修改文件 | `find . -type f -mtime -1` |
+| 查找最近几分钟修改 | `find . -type f -mmin -10` |
+| 删除过期日志 | `find /var/log -name "*.log" -mtime +30 -delete` |
+| 查找空文件 | `find . -type f -empty` |
+| 查找并执行命令 | `find . -name "*.sh" -exec chmod +x {} \;` |
+
+---
+
+## 18. 一句话总结
+
+> `find` 是 Linux 中最常用的文件查找命令，可以按照文件名、类型、大小、时间、权限、用户等条件查找文件，并支持删除、移动、修改权限、配合 grep 搜索内容等操作。
