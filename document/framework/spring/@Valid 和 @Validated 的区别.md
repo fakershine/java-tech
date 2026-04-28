@@ -1,8 +1,5 @@
 # `@Valid` 和 `@Validated` 的区别
 
-> 严格来说，常用的是 **`@Valid`** 和 **`@Validated`**。  
-> `@Validate` 一般不是 Spring MVC 参数校验里常用的注解。
-
 ---
 
 ## 1. 核心区别
